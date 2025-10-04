@@ -12,6 +12,7 @@ dataset2class = {
     'avazu': 'AVAZUDataset',
     'adult': 'ADULTDataset',
     'tmall': 'TMALLDataset',
+    'tmall_2014': 'TMALL2014Dataset',
     'netflix': 'NETFLIXDataset',
     'criteo': 'CRITEODataset',
     'foursquare': 'FOURSQUAREDataset',
@@ -70,6 +71,7 @@ click_dataset = {
     'YOOCHOOSEDataset',
     'RETAILROCKETDataset',
     'TMALLDataset',
+    'TMALL2014Dataset',
     'IPINYOUDataset',
     'TAFENGDataset',
     'LFM1bDataset',
@@ -85,6 +87,7 @@ multiple_dataset = {
     'RETAILROCKETDataset',
     'TAFENGDataset',
     'TMALLDataset',
+    'TMALL2014Dataset',
     'IPINYOUDataset',
     'LFM1bDataset'
 }

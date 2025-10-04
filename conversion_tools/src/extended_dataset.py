@@ -526,6 +526,146 @@ class TMALLDataset(BaseDataset):
         return inter_dict
 
 
+class TMALL2014Dataset(BaseDataset):
+    def __init__(self, input_path, output_path, interaction_type, duplicate_removal):
+        super(TMALL2014Dataset, self).__init__(input_path, output_path)
+        self.dataset_name = 'tmall2014'
+        self.interaction_type = interaction_type
+        self.duplicate_removal = duplicate_removal
+
+        # output file path (align with TMALLDataset style)
+        self.dataset_name = self.dataset_name + '-' + self.interaction_type
+        self.output_path = os.path.join(self.output_path, self.dataset_name)
+        self.check_output_path()
+        self.output_inter_file = os.path.join(self.output_path, self.dataset_name + '.inter')
+
+        # input file
+        # 直接使用传入的文件路径（可为绝对或相对路径）
+        self.inter_file = self.input_path
+
+        self.sep = ','
+
+        # selected feature fields (align with TMALLDataset: per-action dataset, no action column)
+        if self.duplicate_removal:
+            self.inter_fields = {
+                0: 'user_id:token',
+                1: 'item_id:token',
+                2: 'timestamp:float',
+                3: 'interactions:float'
+            }
+        else:
+            self.inter_fields = {
+                0: 'user_id:token',
+                1: 'item_id:token',
+                2: 'timestamp:float'
+            }
+
+    def load_inter_data_streaming(self):
+        """流式读取数据，边读边yield，不占用大量内存
+        
+        原始格式（\x01分隔）：
+        item_id\x01user_id\x01action\x01timestamp
+        示例: 3903192\x01u6276408\x01click\x012013-08-26 10:41:11
+        """
+        import os
+        from datetime import datetime
+        
+        with open(self.inter_file, 'r') as fin:
+            file_size = os.path.getsize(self.inter_file)
+            
+            # 使用更快的进度条更新（行数而非字节）
+            processed_bytes = 0
+            update_interval = 10000  # 每10000行更新一次进度
+            line_count = 0
+            
+            with tqdm(total=file_size, unit='B', unit_scale=True) as pbar:
+                for line in fin:
+                    line_count += 1
+                    line_bytes = len(line)
+                    processed_bytes += line_bytes
+                    
+                    # 减少进度条更新频率
+                    if line_count % update_interval == 0:
+                        pbar.update(processed_bytes)
+                        processed_bytes = 0
+                    
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    try:
+                        # 使用 \x01 作为分隔符
+                        fields = line.split('\x01')
+                        if len(fields) != 4:
+                            continue
+                        
+                        item_id, user_id, action, vtime = fields
+                        
+                        # 过滤交互类型
+                        if action != self.interaction_type:
+                            continue
+                        
+                        # 使用 datetime 加速时间戳转换
+                        dt = datetime.strptime(vtime, '%Y-%m-%d %H:%M:%S')
+                        ts = int(dt.timestamp())
+                        yield [user_id, item_id, str(ts)]
+                    except Exception:
+                        continue
+                
+                # 更新剩余进度
+                if processed_bytes > 0:
+                    pbar.update(processed_bytes)
+
+    def convert_inter(self):
+        try:
+            with open(self.output_inter_file, 'w', buffering=1024*1024) as fp:  # 1MB 缓冲
+                fp.write('\t'.join([self.inter_fields[i] for i in range(len(self.inter_fields))]) + '\n')
+                
+                if self.duplicate_removal:
+                    inter_dict = {}
+                    for line in self.load_inter_data_streaming():
+                        key = tuple(line[:-1])
+                        t = line[-1]
+                        if key in inter_dict:
+                            inter_dict[key][0] = t
+                            inter_dict[key][1] += 1
+                        else:
+                            inter_dict[key] = [t, 1]
+                    
+                    for k, v in tqdm(inter_dict.items()):
+                        fp.write('\t'.join([str(item) for item in list(k) + v]) + '\n')
+                else:
+                    # 批量写入优化
+                    buffer = []
+                    buffer_size = 10000
+                    
+                    for line in self.load_inter_data_streaming():
+                        buffer.append('\t'.join(line))
+                        if len(buffer) >= buffer_size:
+                            fp.write('\n'.join(buffer) + '\n')
+                            buffer.clear()
+                    
+                    # 写入剩余数据
+                    if buffer:
+                        fp.write('\n'.join(buffer) + '\n')
+                        
+        except NotImplementedError:
+            print('This dataset can\'t be converted to inter file\n')
+        except Exception as e:
+            print(f'TMALL2014Dataset convert_inter error: {e}')
+
+    def merge_duplicate(self, inter_table):
+        inter_dict = {}
+        for line in inter_table:
+            key = tuple(line[:-1])
+            t = line[-1]
+            if key in inter_dict:
+                inter_dict[key][0] = t
+                inter_dict[key][1] += 1
+            else:
+                inter_dict[key] = [t, 1]
+        return inter_dict
+
 class NETFLIXDataset(BaseDataset):
     def __init__(self, input_path, output_path):
         super(NETFLIXDataset, self).__init__(input_path, output_path)
