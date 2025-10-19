@@ -534,7 +534,13 @@ class TMALL2014Dataset(BaseDataset):
         self.duplicate_removal = duplicate_removal
 
         # output file path (align with TMALLDataset style)
-        self.dataset_name = self.dataset_name + '-' + self.interaction_type
+        if self.interaction_type == 'all':
+            # 合并所有行为类型的情况
+            self.dataset_name = self.dataset_name + '-merged'
+        else:
+            # 单个行为类型的情况
+            self.dataset_name = self.dataset_name + '-' + self.interaction_type
+        
         self.output_path = os.path.join(self.output_path, self.dataset_name)
         self.check_output_path()
         self.output_inter_file = os.path.join(self.output_path, self.dataset_name + '.inter')
@@ -545,20 +551,39 @@ class TMALL2014Dataset(BaseDataset):
 
         self.sep = ','
 
-        # selected feature fields (align with TMALLDataset: per-action dataset, no action column)
-        if self.duplicate_removal:
-            self.inter_fields = {
-                0: 'user_id:token',
-                1: 'item_id:token',
-                2: 'timestamp:float',
-                3: 'interactions:float'
-            }
+        # selected feature fields - 根据是否合并所有行为类型来定义字段
+        if self.interaction_type == 'all':
+            # 合并模式：包含行为类型字段
+            if self.duplicate_removal:
+                self.inter_fields = {
+                    0: 'user_id:token',
+                    1: 'item_id:token',
+                    2: 'timestamp:float',
+                    3: 'action_type:token',
+                    4: 'interactions:float'
+                }
+            else:
+                self.inter_fields = {
+                    0: 'user_id:token',
+                    1: 'item_id:token',
+                    2: 'timestamp:float',
+                    3: 'action_type:token'
+                }
         else:
-            self.inter_fields = {
-                0: 'user_id:token',
-                1: 'item_id:token',
-                2: 'timestamp:float'
-            }
+            # 单个行为类型模式：不包含行为类型字段
+            if self.duplicate_removal:
+                self.inter_fields = {
+                    0: 'user_id:token',
+                    1: 'item_id:token',
+                    2: 'timestamp:float',
+                    3: 'interactions:float'
+                }
+            else:
+                self.inter_fields = {
+                    0: 'user_id:token',
+                    1: 'item_id:token',
+                    2: 'timestamp:float'
+                }
 
     def load_inter_data_streaming(self):
         """流式读取数据，边读边yield，不占用大量内存
@@ -601,14 +626,19 @@ class TMALL2014Dataset(BaseDataset):
                         
                         item_id, user_id, action, vtime = fields
                         
-                        # 过滤交互类型
-                        if action != self.interaction_type:
-                            continue
-                        
-                        # 使用 datetime 加速时间戳转换
-                        dt = datetime.strptime(vtime, '%Y-%m-%d %H:%M:%S')
-                        ts = int(dt.timestamp())
-                        yield [user_id, item_id, str(ts)]
+                        # 根据模式过滤交互类型
+                        if self.interaction_type == 'all':
+                            # 合并模式：包含所有4种行为类型
+                            if action in ['click', 'cart', 'collect', 'alipay']:
+                                dt = datetime.strptime(vtime, '%Y-%m-%d %H:%M:%S')
+                                ts = int(dt.timestamp())
+                                yield [user_id, item_id, str(ts), action]
+                        else:
+                            # 单个行为类型模式：只包含指定类型
+                            if action == self.interaction_type:
+                                dt = datetime.strptime(vtime, '%Y-%m-%d %H:%M:%S')
+                                ts = int(dt.timestamp())
+                                yield [user_id, item_id, str(ts)]
                     except Exception:
                         continue
                 

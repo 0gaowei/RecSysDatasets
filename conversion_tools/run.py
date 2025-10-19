@@ -57,7 +57,11 @@ if __name__ == '__main__':
     dataset_class_name = dataset2class[args.dataset.lower()]
     dataset_class = getattr(importlib.import_module('src.extended_dataset'), dataset_class_name)
     if dataset_class_name in multiple_dataset:
-        input_args.append(args.interaction_type)
+        # 只有当interaction_type不为None时才添加，否则传入'all'表示处理所有行为类型
+        if args.interaction_type is not None:
+            input_args.append(args.interaction_type)
+        else:
+            input_args.append('all')
     if dataset_class_name in click_dataset:
         input_args.append(args.duplicate_removal)
     if dataset_class_name in multiple_item_features:
