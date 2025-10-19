@@ -5643,3 +5643,167 @@ class TaobaoDataset(BaseDataset):
                         
         except NotImplementedError:
             print('This dataset can\'t be converted to inter file\n')
+
+
+class JDataDataset(BaseDataset):
+    def __init__(self, input_path, output_path, interaction_type, duplicate_removal):
+        super(JDataDataset, self).__init__(input_path, output_path)
+        self.dataset_name = "jdata"
+        self.interaction_type = interaction_type
+        self.duplicate_removal = duplicate_removal
+        
+        # 验证交互类型: pv, cart, buy, fav, click, all
+        valid_types = ["pv", "cart", "buy", "fav", "click", "all"]
+        assert self.interaction_type in valid_types, f"interaction_type must be in {valid_types}"
+        
+        # 行为类型映射 (type字段 -> 行为名称)
+        self.type_mapping = {
+            "1": "pv",      # 浏览
+            "2": "cart",    # 加购
+            "4": "buy",     # 下单
+            "5": "fav",     # 关注
+            "6": "click"    # 点击
+            # 排除 "3": 购物车删除
+        }
+        
+        # 输出路径: Rec_JData/processed/jdata-{type}/
+        if self.interaction_type == "all":
+            self.dataset_name = self.dataset_name + "-merged"
+        else:
+            self.dataset_name = self.dataset_name + "-" + self.interaction_type
+        
+        self.output_path = os.path.join(self.output_path, "Rec_JData", "processed", self.dataset_name)
+        self.check_output_path()
+        self.output_inter_file = os.path.join(self.output_path, self.dataset_name + ".inter")
+        
+        # 输入文件
+        self.inter_file = self.input_path
+        self.sep = ","
+        
+        # 定义字段（基础字段，不包含cate/brand）
+        if self.interaction_type == "all":
+            if self.duplicate_removal:
+                self.inter_fields = {
+                    0: "user_id:token",
+                    1: "item_id:token",
+                    2: "action_type:token",
+                    3: "timestamp:float",
+                    4: "interactions:float"
+                }
+            else:
+                self.inter_fields = {
+                    0: "user_id:token",
+                    1: "item_id:token",
+                    2: "action_type:token",
+                    3: "timestamp:float"
+                }
+        else:
+            if self.duplicate_removal:
+                self.inter_fields = {
+                    0: "user_id:token",
+                    1: "item_id:token",
+                    2: "timestamp:float",
+                    3: "interactions:float"
+                }
+            else:
+                self.inter_fields = {
+                    0: "user_id:token",
+                    1: "item_id:token",
+                    2: "timestamp:float"
+                }
+    
+    def load_inter_data_streaming(self):
+        """流式读取数据"""
+        import datetime
+        
+        with open(self.inter_file, "r") as fin:
+            next(fin)  # 跳过列头
+            file_size = os.path.getsize(self.inter_file)
+            
+            processed_bytes = 0
+            update_interval = 10000
+            line_count = 0
+            
+            with tqdm(total=file_size, unit="B", unit_scale=True) as pbar:
+                for line in fin:
+                    line_count += 1
+                    line_bytes = len(line)
+                    processed_bytes += line_bytes
+                    
+                    if line_count % update_interval == 0:
+                        pbar.update(processed_bytes)
+                        processed_bytes = 0
+                    
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    try:
+                        fields = line.split(self.sep)
+                        if len(fields) < 8:
+                            continue
+                        
+                        user_id = fields[0]
+                        sku_id = fields[1]
+                        time_str = fields[2]
+                        behavior_type = fields[4]
+                        
+                        # 跳过购物车删除行为(type=3)
+                        if behavior_type not in self.type_mapping:
+                            continue
+                        
+                        # 转换时间戳为Unix时间戳
+                        dt = datetime.datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+                        timestamp = str(int(dt.timestamp()))
+                        
+                        behavior_name = self.type_mapping[behavior_type]
+                        
+                        if self.interaction_type == "all":
+                            yield [user_id, sku_id, behavior_name, timestamp]
+                        else:
+                            if behavior_name == self.interaction_type:
+                                yield [user_id, sku_id, timestamp]
+                    except Exception:
+                        continue
+                
+                if processed_bytes > 0:
+                    pbar.update(processed_bytes)
+    
+    def convert_inter(self):
+        """转换交互数据"""
+        try:
+            with open(self.output_inter_file, "w", buffering=1024*1024) as fp:
+                fp.write("\t".join([self.inter_fields[i] for i in range(len(self.inter_fields))]) + "\n")
+                
+                if self.duplicate_removal:
+                    inter_dict = {}
+                    for line in self.load_inter_data_streaming():
+                        if self.interaction_type == "all":
+                            key = tuple(line[:-1])  # user_id, item_id, action_type
+                            t = line[-1]
+                        else:
+                            key = tuple(line[:-1])  # user_id, item_id
+                            t = line[-1]
+                        
+                        if key in inter_dict:
+                            inter_dict[key][0] = max(inter_dict[key][0], t)
+                            inter_dict[key][1] += 1
+                        else:
+                            inter_dict[key] = [t, 1]
+                    
+                    for k, v in tqdm(inter_dict.items()):
+                        fp.write("\t".join([str(item) for item in list(k) + v]) + "\n")
+                else:
+                    buffer = []
+                    buffer_size = 10000
+                    
+                    for line in self.load_inter_data_streaming():
+                        buffer.append("\t".join(line))
+                        if len(buffer) >= buffer_size:
+                            fp.write("\n".join(buffer) + "\n")
+                            buffer.clear()
+                    
+                    if buffer:
+                        fp.write("\n".join(buffer) + "\n")
+        except NotImplementedError:
+            print("This dataset can not be converted to inter file\n")

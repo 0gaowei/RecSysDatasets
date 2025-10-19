@@ -65,7 +65,8 @@ dataset2class = {
     'mind_small_train': 'MINDSmallTrainDataset',
     'mind_small_dev': 'MINDSmallDevDataset',
     'cosmetics': 'CosmeticsDataset',
-    'taobao': 'TaobaoDataset'
+    'taobao': 'TaobaoDataset',
+    'jdata': 'JDataDataset'
 }
 
 click_dataset = {
@@ -80,7 +81,8 @@ click_dataset = {
     'DIGINETICADataset',
     'FOURSQUAREDataset',
     'STEAMDataset',
-    'TaobaoDataset'
+    'TaobaoDataset',
+    'JDataDataset'
 }
 
 multiple_dataset = {
@@ -92,7 +94,8 @@ multiple_dataset = {
     'TMALL2014Dataset',
     'IPINYOUDataset',
     'LFM1bDataset',
-    'TaobaoDataset'
+    'TaobaoDataset',
+    'JDataDataset'
 }
 
 multiple_item_features = {
